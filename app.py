@@ -17,14 +17,14 @@ def index():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa de Pozos — Perú</title>
+    <title>Mapa de Estadísticas de Votos — Perú</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
         .wrap { height: 100vh; background: #f5f5f5; overflow: hidden; }
         .map-side {
             flex: 1;
-            background: #0d2137;
+            background: #122033;
             position: relative;
             overflow: hidden;
             display: flex;
@@ -50,22 +50,22 @@ def index():
         .db-dot.error { background: #f44336; }
         
         .header {
-            background: #0d2137;
+            background: linear-gradient(135deg, #122033 0%, #1d334d 100%);
             color: white;
-            padding: 20px;
+            padding: 18px 20px;
             text-align: center;
-            border-bottom: 3px solid #4fc3f7;
+            border-bottom: 3px solid #e8752a;
         }
         .header h1 {
             font-size: 32px;
-            color: #4fc3f7;
+            color: #ffffff;
             margin: 0 0 5px 0;
             font-weight: bold;
         }
         .header p {
             margin: 0;
             font-size: 13px;
-            color: #b0c4de;
+            color: #cbd7e4;
         }
         
         #svgmap {
@@ -379,6 +379,7 @@ def index():
             border: 1px solid #cfddea;
             border-radius: 6px;
             overflow: hidden;
+            position: relative;
         }
         .pane-hdr {
             padding: 11px 13px;
@@ -402,6 +403,55 @@ def index():
             min-height: 0;
             width: 100%;
             background: #edf3f8;
+            cursor: grab;
+            touch-action: none;
+        }
+        .map-svg:active { cursor: grabbing; }
+        .vote-card {
+            position: absolute;
+            left: 10px;
+            bottom: 10px;
+            width: min(230px, calc(100% - 20px));
+            background: rgba(255,255,255,0.94);
+            border: 1px solid #cdd8e5;
+            border-radius: 6px;
+            padding: 9px 10px;
+            box-shadow: 0 8px 22px rgba(18,32,51,0.12);
+            pointer-events: none;
+            color: #152438;
+        }
+        .vote-title {
+            font-size: 12px;
+            font-weight: 900;
+            line-height: 1.15;
+            margin-bottom: 7px;
+        }
+        .vote-row {
+            display: grid;
+            grid-template-columns: 64px 1fr 42px;
+            align-items: center;
+            gap: 7px;
+            font-size: 11px;
+            font-weight: 800;
+            margin-top: 5px;
+        }
+        .vote-bar {
+            height: 8px;
+            overflow: hidden;
+            background: #e4ebf2;
+            border-radius: 999px;
+        }
+        .vote-fill {
+            height: 100%;
+            border-radius: 999px;
+        }
+        .vote-fill.keiko { background: #E8752A; }
+        .vote-fill.sanchez { background: #1FA64A; }
+        .vote-foot {
+            margin-top: 7px;
+            font-size: 10px;
+            color: #6c7b8a;
+            font-weight: 800;
         }
         .empty-map {
             fill: #7b8998;
@@ -425,6 +475,18 @@ def index():
                 min-height: min(620px, 88vh);
                 height: min(620px, 88vh);
             }
+            .vote-card {
+                left: 8px;
+                bottom: 8px;
+                width: min(210px, calc(100% - 16px));
+                padding: 8px;
+            }
+            .vote-row {
+                grid-template-columns: 58px 1fr 38px;
+                gap: 5px;
+                font-size: 10px;
+            }
+            .vote-title { font-size: 11px; }
             .pane-hdr { padding: 10px 12px; }
             .pane-hdr h2 { font-size: 18px; }
             .pane-hdr p { font-size: 13px; }
@@ -436,12 +498,12 @@ def index():
     <div class="wrap">
         <div class="map-side">
             <div class="header">
-                <h1>Mapa de Pozos — Perú</h1>
-                <p>Haz clic en un departamento para ver sus provincias, distritos y pozos</p>
+                <h1>Mapa de Estadísticas de Votos — Perú</h1>
+                <p>Keiko Fujimori vs Roberto Sánchez · resultados por departamento, provincia y distrito</p>
             </div>
             <div class="db-bar">
                 <div class="db-dot" id="dbdot"></div>
-                <span id="dbmsg">Conectando base de datos...</span>
+                <span id="dbmsg">Cargando datos electorales...</span>
             </div>
             <div class="map-grid">
                 <section class="map-pane">
@@ -450,6 +512,7 @@ def index():
                         <p id="deptMeta">Selecciona un departamento</p>
                     </div>
                     <svg class="map-svg" id="deptMap" viewBox="0 0 360 560"></svg>
+                    <div class="vote-card" id="deptStats"></div>
                 </section>
                 <section class="map-pane">
                     <div class="pane-hdr">
@@ -457,6 +520,7 @@ def index():
                         <p id="provinceMeta">Aparecen al elegir un departamento</p>
                     </div>
                     <svg class="map-svg" id="provinceMap" viewBox="0 0 360 560"></svg>
+                    <div class="vote-card" id="provinceStats"></div>
                 </section>
                 <section class="map-pane">
                     <div class="pane-hdr">
@@ -464,6 +528,7 @@ def index():
                         <p id="districtMeta">Aparecen al elegir una provincia</p>
                     </div>
                     <svg class="map-svg" id="districtMap" viewBox="0 0 360 560"></svg>
+                    <div class="vote-card" id="districtStats"></div>
                 </section>
             </div>
             <div class="legend">
@@ -564,7 +629,7 @@ def index():
                 const res = await fetch("/api/wells");
                 wells = await res.json();
                 const total = Object.values(wells).reduce((s, a) => s + a.length, 0);
-                setDbStatus(`Base de datos conectada — ${total} pozo${total !== 1 ? "s" : ""} guardado${total !== 1 ? "s" : ""}`);
+                setDbStatus(`Base local conectada — ${total} registro${total !== 1 ? "s" : ""} de referencia`);
             } catch (e) {
                 setDbStatus("Error cargando base de datos", true);
             }
@@ -663,6 +728,78 @@ def index():
             return result.winner === "keiko" ? "Keiko Fujimori" : "Roberto Sánchez / JP";
         }
 
+        function resultForFeature(feature, level) {
+            if (!feature) return null;
+            const byCode = electionGeo[level]?.[featureUbigeo(feature, level)];
+            if (byCode) return byCode;
+            if (level === "departments") return electionForDept(getDeptName(feature));
+            if (level === "provinces") return electionForProvince(getDeptName(feature), getProvinceName(feature));
+            return electionForDistrict(getDeptName(feature), getProvinceName(feature), getDistrictName(feature));
+        }
+
+        function aggregateResults(features, level) {
+            return features.reduce((acc, feature) => {
+                const result = resultForFeature(feature, level);
+                if (!result) return acc;
+                acc.keiko += Number(result.keiko || 0);
+                acc.sanchez += Number(result.sanchez || 0);
+                acc.mesas += Number(result.mesas || 0);
+                return acc;
+            }, { keiko: 0, sanchez: 0, mesas: 0 });
+        }
+
+        function completeResult(result) {
+            if (!result) return null;
+            const keiko = Number(result.keiko || 0);
+            const sanchez = Number(result.sanchez || 0);
+            return {
+                ...result,
+                keiko,
+                sanchez,
+                mesas: Number(result.mesas || 0),
+                winner: keiko >= sanchez ? "keiko" : "sanchez",
+                margin: Math.abs(keiko - sanchez)
+            };
+        }
+
+        function formatNumber(value) {
+            return Math.round(Number(value || 0)).toLocaleString("es-PE");
+        }
+
+        function pct(value, total) {
+            if (!total) return "0.0%";
+            return `${((Number(value || 0) / total) * 100).toFixed(1)}%`;
+        }
+
+        function renderVoteStats(elementId, title, result, detail = "") {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            const data = completeResult(result);
+            if (!data || (!data.keiko && !data.sanchez)) {
+                el.innerHTML = `
+                    <div class="vote-title">${esc(title)}</div>
+                    <div class="vote-foot">Sin datos de votación para esta vista</div>
+                `;
+                return;
+            }
+            const total = data.keiko + data.sanchez;
+            const winner = winnerName(data);
+            el.innerHTML = `
+                <div class="vote-title">${esc(title)}</div>
+                <div class="vote-row">
+                    <span>Keiko</span>
+                    <div class="vote-bar"><div class="vote-fill keiko" style="width:${pct(data.keiko, total)}"></div></div>
+                    <span>${pct(data.keiko, total)}</span>
+                </div>
+                <div class="vote-row">
+                    <span>JP</span>
+                    <div class="vote-bar"><div class="vote-fill sanchez" style="width:${pct(data.sanchez, total)}"></div></div>
+                    <span>${pct(data.sanchez, total)}</span>
+                </div>
+                <div class="vote-foot">${esc(winner)} gana · ${formatNumber(total)} votos${detail ? ` · ${esc(detail)}` : ""}</div>
+            `;
+        }
+
         function provincesForDept(dept) {
             return geo.provinces.features
                 .filter(f => norm(getDeptName(f)) === norm(dept))
@@ -707,15 +844,7 @@ def index():
         }
 
         function getFill(feature, index, level) {
-            const name = getAreaName(feature, level);
-            if (level === "departments") {
-                const result = electionGeo.departments[featureUbigeo(feature, level)] || electionForDept(name);
-                if (!result) return "#B5D4F4";
-                return result.winner === "keiko" ? "#E8752A" : "#1FA64A";
-            }
-            const result = electionGeo[level][featureUbigeo(feature, level)] || (level === "districts"
-                ? electionForDistrict(getDeptName(feature), getProvinceName(feature), getDistrictName(feature))
-                : electionForProvince(getDeptName(feature), getProvinceName(feature)));
+            const result = resultForFeature(feature, level);
             if (!result) return palette[index % palette.length];
             return result.winner === "keiko" ? "#E8752A" : "#1FA64A";
         }
@@ -729,12 +858,19 @@ def index():
         function renderEmpty(svgId, message) {
             const svg = d3.select("#" + svgId);
             svg.selectAll("*").remove();
+            svg.on(".zoom", null);
             svg.append("text")
                 .attr("class", "empty-map")
                 .attr("x", W / 2)
                 .attr("y", H / 2)
                 .attr("text-anchor", "middle")
                 .text(message);
+        }
+
+        function renderEmptyStats(elementId, message) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.innerHTML = `<div class="vote-title">${esc(message)}</div><div class="vote-foot">Selecciona un área del mapa</div>`;
         }
 
         function labelFontSize(level, count) {
@@ -952,11 +1088,13 @@ def index():
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "middle")
                 .attr("font-size", d => d.fontSize)
+                .attr("data-font-size", d => d.fontSize)
                 .attr("fill", "#ffffff")
                 .attr("font-weight", "900")
                 .attr("paint-order", "stroke")
                 .attr("stroke", "rgba(28,42,56,0.82)")
                 .attr("stroke-width", "3")
+                .attr("data-stroke-width", "3")
                 .attr("stroke-linejoin", "round")
                 .attr("pointer-events", "none");
 
@@ -992,31 +1130,38 @@ def index():
                 const textEndX = isLeft ? labelX + 4 : labelX - 4;
 
                 callouts.append("path")
+                    .attr("class", "callout-line")
                     .attr("d", `M${item.x},${item.y} L${elbowX},${item.labelY} L${textEndX},${item.labelY}`)
                     .attr("fill", "none")
                     .attr("stroke", "#3c4652")
                     .attr("stroke-width", 1.15)
+                    .attr("data-stroke-width", 1.15)
                     .attr("opacity", 0.86);
 
                 callouts.append("circle")
+                    .attr("class", "callout-dot")
                     .attr("cx", item.x)
                     .attr("cy", item.y)
                     .attr("r", 1.7)
+                    .attr("data-r", 1.7)
                     .attr("fill", "#243547")
                     .attr("stroke", "#ffffff")
                     .attr("stroke-width", 0.8);
 
                 const text = callouts.append("text")
+                    .attr("class", "callout-label")
                     .attr("x", labelX)
                     .attr("y", item.labelY - ((item.lines.length - 1) * item.fontSize * 0.55))
                     .attr("text-anchor", anchor)
                     .attr("dominant-baseline", "middle")
                     .attr("font-size", item.fontSize)
+                    .attr("data-font-size", item.fontSize)
                     .attr("font-weight", "900")
                     .attr("fill", "#243547")
                     .attr("paint-order", "stroke")
                     .attr("stroke", "rgba(255,255,255,0.92)")
                     .attr("stroke-width", "3.5")
+                    .attr("data-stroke-width", "3.5")
                     .attr("stroke-linejoin", "round");
 
                 item.lines.forEach((line, lineIndex) => {
@@ -1028,9 +1173,10 @@ def index():
             });
         }
 
-        function renderMap(svgId, features, level, onClick, focusCollection = null) {
+        function renderMap(svgId, features, level, onClick, focusCollection = null, statsConfig = null) {
             const svg = d3.select("#" + svgId);
             svg.selectAll("*").remove();
+            svg.on(".zoom", null);
             renderGrid(svg);
             if (!features.length) {
                 svg.append("text")
@@ -1039,8 +1185,10 @@ def index():
                     .attr("y", H / 2)
                     .attr("text-anchor", "middle")
                     .text("Mapa no disponible para esta zona");
+                if (statsConfig?.id) renderEmptyStats(statsConfig.id, "Sin mapa disponible");
                 return;
             }
+            if (statsConfig?.id) renderVoteStats(statsConfig.id, statsConfig.title, statsConfig.result, statsConfig.detail);
 
             const collection = focusCollection || { type: "FeatureCollection", features };
             const useCallouts = level === "districts" && features.length > 10;
@@ -1049,7 +1197,7 @@ def index():
                 collection
             );
             const pathFn = d3.geoPath().projection(proj);
-            const g = svg.append("g");
+            const g = svg.append("g").attr("class", "zoom-layer");
 
             const paths = g.selectAll("path")
                 .data(features).join("path")
@@ -1064,15 +1212,29 @@ def index():
                     if (level === "provinces" && norm(getProvinceName(d)) === norm(selectedProvince)) return 2.4;
                     return level === "districts" ? 1.15 : 1.35;
                 })
+                .attr("data-stroke-width", d => {
+                    if (level === "departments" && norm(getDeptName(d)) === norm(selectedDept)) return 2.4;
+                    if (level === "provinces" && norm(getProvinceName(d)) === norm(selectedProvince)) return 2.4;
+                    return level === "districts" ? 1.15 : 1.35;
+                })
                 .attr("fill", (d, i) => getFill(d, i, level))
                 .attr("class", "area-path " + level)
                 .style("cursor", "pointer")
-                .on("mouseover", function () {
+                .on("mouseover", function (e, d) {
                     d3.select(this).attr("fill", "#4fc3f7");
+                    if (statsConfig?.id) {
+                        renderVoteStats(
+                            statsConfig.id,
+                            getAreaName(d, level),
+                            resultForFeature(d, level),
+                            "vista seleccionada"
+                        );
+                    }
                 })
                 .on("mouseout", function (e, d) {
                     const i = features.indexOf(d);
                     d3.select(this).attr("fill", getFill(d, i, level));
+                    if (statsConfig?.id) renderVoteStats(statsConfig.id, statsConfig.title, statsConfig.result, statsConfig.detail);
                 })
                 .on("click", (e, d) => onClick && onClick(d));
             const labelLimit = level === "districts" ? 95 : 220;
@@ -1082,26 +1244,70 @@ def index():
                 drawInternalLabels(g, nudged.placed);
                 if (level !== "departments" && nudged.skipped.length) renderCalloutLabels(g, nudged.skipped, level);
             }
+
+            function updateZoomStyles(k) {
+                const labelDivisor = Math.pow(k, 1.25);
+                const strokeDivisor = Math.max(k, 1);
+                g.selectAll("path.area-path,path.callout-line")
+                    .attr("stroke-width", function () {
+                        return Number(this.dataset.strokeWidth || 1.2) / strokeDivisor;
+                    });
+                g.selectAll("text.area-label,text.callout-label")
+                    .attr("font-size", function () {
+                        return Number(this.dataset.fontSize || 8) / labelDivisor;
+                    })
+                    .attr("stroke-width", function () {
+                        return Number(this.dataset.strokeWidth || 3) / Math.pow(k, 1.15);
+                    });
+                g.selectAll("circle.callout-dot")
+                    .attr("r", function () { return Number(this.dataset.r || 1.7) / strokeDivisor; })
+                    .attr("stroke-width", 0.8 / strokeDivisor);
+            }
+
+            const zoom = d3.zoom()
+                .scaleExtent([1, 8])
+                .translateExtent([[-90, -90], [W + 90, H + 90]])
+                .extent([[0, 0], [W, H]])
+                .on("zoom", e => {
+                    g.attr("transform", e.transform);
+                    updateZoomStyles(e.transform.k);
+                });
+            svg.call(zoom);
+            updateZoomStyles(1);
         }
 
         function renderDepartments() {
             currentLevel = "departments";
             document.getElementById("deptMeta").textContent = "Naranja Keiko · verde JP";
+            const selectedFeature = selectedDept
+                ? geo.departments.features.find(f => norm(getDeptName(f)) === norm(selectedDept))
+                : null;
+            const statsTitle = selectedFeature ? titleCase(getDeptName(selectedFeature)) : "Perú completo";
+            const statsResult = selectedFeature
+                ? resultForFeature(selectedFeature, "departments")
+                : aggregateResults(geo.departments.features, "departments");
             renderMap("deptMap", geo.departments.features, "departments", d => {
                 showDepartment(getDeptName(d));
-            }, geo.departments);
+            }, geo.departments, {
+                id: "deptStats",
+                title: statsTitle,
+                result: statsResult,
+                detail: selectedFeature ? "departamento" : "25 departamentos"
+            });
         }
 
         function clearProvinces() {
             document.getElementById("provinceTitle").textContent = "Provincias";
             document.getElementById("provinceMeta").textContent = "Aparecen al elegir un departamento";
             renderEmpty("provinceMap", "Selecciona un departamento");
+            renderEmptyStats("provinceStats", "Provincias");
         }
 
         function clearDistricts() {
             document.getElementById("districtTitle").textContent = "Distritos";
             document.getElementById("districtMeta").textContent = "Aparecen al elegir una provincia";
             renderEmpty("districtMap", "Selecciona una provincia");
+            renderEmptyStats("districtStats", "Distritos");
         }
 
         function showDepartments() {
@@ -1128,8 +1334,16 @@ def index():
             currentLevel = "provinces";
             document.getElementById("provinceTitle").textContent = `Provincias de ${niceDept}`;
             document.getElementById("provinceMeta").textContent = `Naranja Keiko · verde JP · ${provinceCount} provincias · ${districtCount} distritos`;
+            const selectedFeature = selectedProvince
+                ? features.find(f => norm(getProvinceName(f)) === norm(selectedProvince))
+                : null;
             renderMap("provinceMap", features, "provinces", d => {
                 showProvince(dept, getProvinceName(d));
+            }, null, {
+                id: "provinceStats",
+                title: selectedFeature ? titleCase(getProvinceName(selectedFeature)) : niceDept,
+                result: selectedFeature ? resultForFeature(selectedFeature, "provinces") : aggregateResults(features, "provinces"),
+                detail: selectedFeature ? "provincia" : `${provinceCount} provincias`
             });
         }
 
@@ -1148,7 +1362,12 @@ def index():
             currentLevel = "districts";
             document.getElementById("districtTitle").textContent = `Distritos de ${titleCase(province)}`;
             document.getElementById("districtMeta").textContent = `${winnerName(result)} en ${titleCase(province)} · ${districtCount} distritos`;
-            renderMap("districtMap", features, "districts", null);
+            renderMap("districtMap", features, "districts", null, null, {
+                id: "districtStats",
+                title: titleCase(province),
+                result: aggregateResults(features, "districts"),
+                detail: `${districtCount} distritos`
+            });
         }
 
         function openModal(dept) {
@@ -1234,6 +1453,7 @@ def index():
                     districts: ubigeoDistricts.ubigeo_distritos
                 };
                 showDepartments();
+                setDbStatus("Datos electorales cargados — departamentos, provincias y distritos");
 
             } catch (e) {
                 console.error(e);
