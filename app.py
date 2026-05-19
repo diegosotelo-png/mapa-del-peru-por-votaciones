@@ -1261,18 +1261,24 @@ def index():
             }
 
             function updateZoomStyles(k) {
-                const labelDivisor = Math.pow(k, 1.25);
                 const strokeDivisor = Math.max(k, 1);
+                const minScreenFont = level === "districts" ? 10.8 : level === "provinces" ? 10.2 : 8.8;
+                const maxScreenFont = level === "districts" ? 15.5 : level === "provinces" ? 14 : 12;
+                const zoomBoost = 1 + Math.max(0, Math.log2(Math.max(k, 1))) * 0.18;
                 g.selectAll("path.area-path,path.callout-line")
                     .attr("stroke-width", function () {
                         return Number(this.dataset.strokeWidth || 1.2) / strokeDivisor;
                     });
                 g.selectAll("text.area-label,text.callout-label")
                     .attr("font-size", function () {
-                        return Number(this.dataset.fontSize || 8) / labelDivisor;
+                        const base = Number(this.dataset.fontSize || 8);
+                        const screenSize = Math.min(maxScreenFont, Math.max(minScreenFont, base * zoomBoost));
+                        return screenSize / Math.max(k, 1);
                     })
                     .attr("stroke-width", function () {
-                        return Number(this.dataset.strokeWidth || 3) / Math.pow(k, 1.15);
+                        const base = Number(this.dataset.strokeWidth || 3);
+                        const screenStroke = Math.min(4.5, Math.max(3, base * 0.95));
+                        return screenStroke / Math.max(k, 1);
                     });
                 g.selectAll("circle.callout-dot")
                     .attr("r", function () { return Number(this.dataset.r || 1.7) / strokeDivisor; })
