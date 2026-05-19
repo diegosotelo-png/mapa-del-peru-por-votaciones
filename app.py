@@ -20,15 +20,21 @@ def index():
     <title>Mapa de Estadísticas de Votos — Perú</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
-        .wrap { height: 100vh; background: #f5f5f5; overflow: hidden; }
+        html, body {
+            min-height: 100%;
+            overflow-y: auto;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: #e9f0f7;
+        }
+        .wrap { min-height: 100vh; height: auto; background: #f5f5f5; overflow: visible; }
         .map-side {
             flex: 1;
             background: #122033;
             position: relative;
-            overflow: hidden;
+            overflow: visible;
             display: flex;
             flex-direction: column;
+            min-height: 100vh;
         }
         .db-bar {
             display: flex;
@@ -362,17 +368,19 @@ def index():
         .db-bar { font-size: 14px; font-weight: 700; }
         #svgmap, .level-bar, .map-toolbar, .map-info { display: none; }
         .map-grid {
-            flex: 1;
-            min-height: 0;
+            flex: none;
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
+            align-items: stretch;
             gap: 12px;
             padding: 12px;
             background: #e9f0f7;
+            overflow: visible;
         }
         .map-pane {
             min-width: 0;
-            min-height: 0;
+            min-height: 620px;
+            height: clamp(620px, calc(100vh - 205px), 860px);
             display: flex;
             flex-direction: column;
             background: #f4f8fc;
@@ -459,8 +467,6 @@ def index():
             font-weight: 800;
         }
         @media (max-width: 980px) {
-            .wrap { min-height: 100vh; height: auto; overflow: visible; }
-            .map-side { min-height: 100vh; overflow: visible; }
             .header { padding: 12px 14px; }
             .header h1 { font-size: 24px; }
             .header p { font-size: 12px; }
