@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+.deps/
+.venv/
+*.db
+*.log
+onpe_eg2026_mesas_*.parquet
+ubigeo_reniec_inei_*.csv
