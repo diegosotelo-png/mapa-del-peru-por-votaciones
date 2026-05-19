@@ -81,20 +81,23 @@ def index():
         }
         
         .legend {
-            position: absolute;
-            bottom: 15px;
-            left: 15px;
+            position: sticky;
+            top: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
             background: white;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 10px 12px;
-            font-size: 12px;
-            z-index: 10;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-bottom: 1px solid #d8e3ef;
+            padding: 9px 12px;
+            font-size: 14px;
+            font-weight: 800;
+            z-index: 20;
+            box-shadow: 0 2px 10px rgba(18,32,51,0.07);
         }
-        .lr { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: #333; }
+        .lr { display: flex; align-items: center; gap: 8px; margin-bottom: 0; color: #314154; }
         .lr:last-child { margin: 0; }
-        .ld { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
+        .ld { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
         
         .level-bar {
             display: flex;
@@ -496,7 +499,13 @@ def index():
             .pane-hdr { padding: 10px 12px; }
             .pane-hdr h2 { font-size: 18px; }
             .pane-hdr p { font-size: 13px; }
-            .legend { display: none; }
+            .legend {
+                flex-wrap: wrap;
+                gap: 8px 14px;
+                justify-content: flex-start;
+                padding: 8px 10px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
@@ -510,6 +519,11 @@ def index():
             <div class="db-bar">
                 <div class="db-dot" id="dbdot"></div>
                 <span id="dbmsg">Cargando datos electorales...</span>
+            </div>
+            <div class="legend">
+                <div class="lr"><div class="ld" style="background: #E8752A;"></div>Naranja: Keiko Fujimori</div>
+                <div class="lr"><div class="ld" style="background: #1FA64A;"></div>Verde: Roberto Sánchez</div>
+                <div class="lr"><div class="ld" style="background: #2D8BC9;"></div>Seleccionado</div>
             </div>
             <div class="map-grid">
                 <section class="map-pane">
@@ -536,11 +550,6 @@ def index():
                     <svg class="map-svg" id="districtMap" viewBox="0 0 360 560"></svg>
                     <div class="vote-card" id="districtStats"></div>
                 </section>
-            </div>
-            <div class="legend">
-                <div class="lr"><div class="ld" style="background: #E8752A;"></div>Keiko Fujimori</div>
-                <div class="lr"><div class="ld" style="background: #1FA64A;"></div>Roberto Sánchez</div>
-                <div class="lr"><div class="ld" style="background: #2D8BC9;"></div>Seleccionado</div>
             </div>
         </div>
     </div>
