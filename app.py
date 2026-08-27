@@ -1,10 +1,12 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
+import gzip
 import os
 import database
 
 # Inicializar BD
 database.crear_tabla()
 database.insertar_datos_ejemplo()
+database.crear_tabla_conteo()
 
 app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -428,7 +430,6 @@ def index():
             border-radius: 6px;
             padding: 9px 10px;
             box-shadow: 0 8px 22px rgba(18,32,51,0.12);
-            pointer-events: none;
             color: #152438;
         }
         .vote-title {
@@ -458,6 +459,78 @@ def index():
         }
         .vote-fill.keiko { background: #E8752A; }
         .vote-fill.sanchez { background: #1FA64A; }
+        .pozo-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 800;
+            color: #314154;
+            margin-top: 6px;
+        }
+        .pozo-val { font-size: 15px; color: #0d2137; }
+        .pozo-input {
+            width: 96px;
+            padding: 3px 7px;
+            border: 1px solid #cbd6e2;
+            border-radius: 5px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 800;
+            color: #0d2137;
+            background: #fff;
+        }
+        input.pozo-input { text-align: right; }
+        .card-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 9px; }
+        .card-btn {
+            padding: 4px 10px;
+            border: 1px solid #cbd6e2;
+            border-radius: 5px;
+            background: #fff;
+            color: #2b3a4a;
+            font-family: inherit;
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .card-btn.ok { background: #1D9E75; border-color: #1D9E75; color: #fff; }
+        .card-btn:disabled { opacity: 0.45; cursor: default; }
+        .pozo-val.si { color: #1FA64A; }
+        .pozo-val.no { color: #97a4b2; }
+        .nomap {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            max-width: 46%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            justify-content: flex-end;
+        }
+        .nomap-chip {
+            padding: 3px 7px;
+            border: 1px dashed #9aa8b6;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.94);
+            color: #46586b;
+            font-family: inherit;
+            font-size: 10px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .nomap-chip:hover { border-color: #1D9E75; color: #14324a; }
+        .add-btn {
+            margin-left: auto;
+            padding: 6px 12px;
+            border: 1px solid #1D9E75;
+            border-radius: 6px;
+            background: #1D9E75;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+        }
         .vote-foot {
             margin-top: 7px;
             font-size: 10px;
@@ -513,16 +586,16 @@ def index():
     <div class="wrap">
         <div class="map-side">
             <div class="header">
-                <h1>Mapa de Estadísticas de Votos — Perú</h1>
-                <p>Keiko Fujimori vs Roberto Sánchez · resultados por departamento, provincia y distrito</p>
+                <h1>Mapa de Pozos — Perú</h1>
+                <p>Pozos y petar por departamento, provincia y distrito</p>
             </div>
             <div class="db-bar">
                 <div class="db-dot" id="dbdot"></div>
-                <span id="dbmsg">Cargando datos electorales...</span>
+                <span id="dbmsg">Cargando datos...</span>
+                <button class="add-btn" onclick="openModal()">+ Agregar pozos</button>
             </div>
             <div class="legend">
-                <div class="lr"><div class="ld" style="background: #E8752A;"></div>Naranja: Keiko Fujimori</div>
-                <div class="lr"><div class="ld" style="background: #1FA64A;"></div>Verde: Roberto Sánchez</div>
+                <div class="lr"><div class="ld" style="background: #1FA64A;"></div>Territorio</div>
                 <div class="lr"><div class="ld" style="background: #2D8BC9;"></div>Seleccionado</div>
             </div>
             <div class="map-grid">
@@ -548,6 +621,7 @@ def index():
                         <p id="districtMeta">Aparecen al elegir una provincia</p>
                     </div>
                     <svg class="map-svg" id="districtMap" viewBox="0 0 360 560"></svg>
+                    <div class="nomap" id="districtNoMap"></div>
                     <div class="vote-card" id="districtStats"></div>
                 </section>
             </div>
@@ -556,23 +630,21 @@ def index():
     
     <div class="modal-bg" id="mbg">
         <div class="modal">
-            <h3 id="mtitle">Agregar pozo</h3>
-            <div class="fr"><label>Nombre del pozo</label><input id="fn" placeholder="Ej: Pozo Talara 3"/></div>
-            <div class="fr"><label>Profundidad (m)</label><input id="fd" type="number" placeholder="2500"/></div>
-            <div class="fr"><label>Producción (BPD)</label><input id="fp" type="number" placeholder="1200"/></div>
-            <div class="fr"><label>Operador</label><input id="fo" placeholder="Ej: Petroperú"/></div>
-            <div class="fr"><label>Año inicio</label><input id="fy" type="number" placeholder="2020"/></div>
+            <h3 id="mtitle">Agregar pozos</h3>
+            <div class="fr"><label>Departamento</label><select id="zDept" onchange="refreshProvOptions(); loadZoneIntoForm();"></select></div>
+            <div class="fr"><label>Provincia (dejar vacío = todo el departamento)</label><select id="zProv" onchange="refreshDistOptions(); loadZoneIntoForm();"></select></div>
+            <div class="fr"><label>Distrito (dejar vacío = toda la provincia)</label><select id="zDist" onchange="loadZoneIntoForm();"></select></div>
+            <div class="fr"><label>Cantidad de pozos</label><input id="zPozos" type="number" min="0" placeholder="0"/></div>
             <div class="fr">
-                <label>Estado</label>
-                <select id="fe">
-                    <option value="Activo">Activo</option>
-                    <option value="Inactivo">Inactivo</option>
-                    <option value="Perforación">Perforación</option>
+                <label>¿Hay petar?</label>
+                <select id="zPetar">
+                    <option value="0">No hay</option>
+                    <option value="1">Sí hay</option>
                 </select>
             </div>
             <div class="mbtns">
                 <button onclick="closeModal()">Cancelar</button>
-                <button class="ok" onclick="saveWell()">Guardar</button>
+                <button class="ok" onclick="savePozos()">Guardar</button>
             </div>
         </div>
     </div>
@@ -585,66 +657,31 @@ def index():
             districts: "/data/peru_distrital_simple.geojson",
             ubigeoDepartments: "/data/ubigeo_departamentos.json",
             ubigeoProvinces: "/data/ubigeo_provincias.json",
-            ubigeoDistricts: "/data/ubigeo_distritos.json",
-            electionResults: "/data/election_results_ubigeo.json"
+            ubigeoDistricts: "/data/ubigeo_distritos.json"
         };
-        let wells = {};
+        let pozosData = [];
         let geo = { departments: null, provinces: null, districts: null };
         let ubigeo = { departments: [], provinces: [], districts: [] };
-        let electionGeo = { departments: {}, provinces: {}, districts: {} };
         let currentLevel = "departments";
         let selectedDept = null;
         let selectedProvince = null;
+        let selectedDistrict = null;
+        const panelZones = {};
+        const editingPanels = new Set();
         const W = 360, H = 560;
-        const palette = [
-            "#F3D483", "#C8D99A", "#F0B088", "#A9C9EB", "#E4A7C0",
-            "#9FD4C1", "#B4C4E6", "#F2C18C", "#B9D58E", "#D9B5E8",
-            "#9FD6E0", "#F0A6A6", "#C7B7EA", "#A9D6A5", "#E8CB92"
-        ];
-        const electionResults = {
-            "AMAZONAS": { winner: "sanchez", keiko: 28403, sanchez: 59302 },
-            "ANCASH": { winner: "keiko", keiko: 97743, sanchez: 81477 },
-            "APURIMAC": { winner: "sanchez", keiko: 13861, sanchez: 82531 },
-            "AREQUIPA": { winner: "sanchez", keiko: null, sanchez: 88766 },
-            "AYACUCHO": { winner: "sanchez", keiko: 23058, sanchez: 89314 },
-            "CAJAMARCA": { winner: "sanchez", keiko: 89279, sanchez: 268961 },
-            "CALLAO": { winner: "keiko", keiko: 119476, sanchez: null },
-            "CUSCO": { winner: "sanchez", keiko: null, sanchez: 158426 },
-            "HUANCAVELICA": { winner: "sanchez", keiko: 12238, sanchez: 75063 },
-            "HUANUCO": { winner: "sanchez", keiko: 52987, sanchez: 102366 },
-            "ICA": { winner: "keiko", keiko: 98055, sanchez: null },
-            "JUNIN": { winner: "keiko", keiko: 108631, sanchez: 78227 },
-            "LA LIBERTAD": { winner: "keiko", keiko: 188993, sanchez: 88291 },
-            "LAMBAYEQUE": { winner: "keiko", keiko: 176103, sanchez: 71644 },
-            "LIMA": { winner: "keiko", keiko: 1089534, sanchez: null },
-            "LORETO": { winner: "keiko", keiko: 96815, sanchez: 33655 },
-            "MADRE DE DIOS": { winner: "sanchez", keiko: 10948, sanchez: 18948 },
-            "MOQUEGUA": { winner: "sanchez", keiko: null, sanchez: 14718 },
-            "PASCO": { winner: "keiko", keiko: 21842, sanchez: 21606 },
-            "PIURA": { winner: "keiko", keiko: 246696, sanchez: 100908 },
-            "PUNO": { winner: "sanchez", keiko: null, sanchez: 162460 },
-            "SAN MARTIN": { winner: "sanchez", keiko: 90655, sanchez: 93288 },
-            "TACNA": { winner: "sanchez", keiko: null, sanchez: 26302 },
-            "TUMBES": { winner: "keiko", keiko: 37850, sanchez: 7748 },
-            "UCAYALI": { winner: "keiko", keiko: 66994, sanchez: 29038 }
-        };
-        const provinceElectionOverrides = {
-            "PIURA|AYABACA": { winner: "sanchez" },
-            "PIURA|HUANCABAMBA": { winner: "sanchez" }
-        };
-        const districtElectionOverrides = {};
-
+        const MAP_GREEN = "#1FA64A";
         function setDbStatus(msg, isError = false) {
             document.getElementById("dbdot").style.background = isError ? "#f44336" : "#1D9E75";
             document.getElementById("dbmsg").textContent = msg;
         }
 
-        async function loadWells() {
+        async function loadPozos() {
             try {
-                const res = await fetch("/api/wells");
-                wells = await res.json();
-                const total = Object.values(wells).reduce((s, a) => s + a.length, 0);
-                setDbStatus(`Base local conectada — ${total} registro${total !== 1 ? "s" : ""} de referencia`);
+                const res = await fetch("/api/pozos");
+                pozosData = await res.json();
+                const zonas = pozosData.length;
+                const total = pozosData.reduce((s, r) => s + (r.pozos || 0), 0);
+                setDbStatus(`Base local conectada — ${total} pozo${total !== 1 ? "s" : ""} en ${zonas} zona${zonas !== 1 ? "s" : ""}`);
             } catch (e) {
                 setDbStatus("Error cargando base de datos", true);
             }
@@ -656,6 +693,28 @@ def index():
                 .replace(/[\u0300-\u036f]/g, "")
                 .toUpperCase()
                 .trim();
+        }
+
+        const PROVINCE_ALIASES = {
+            "PUIRA": "PIURA",
+            "VICTOR FAFARDO": "VICTOR FAJARDO",
+            "NAZCA": "NASCA"
+        };
+
+        function normProvince(value) {
+            const key = norm(value);
+            return PROVINCE_ALIASES[key] || key;
+        }
+
+        // Nombre de provincia tal como lo escribe el ubigeo, para guardar
+        // siempre el mismo texto venga del mapa o del formulario.
+        function canonicalProvince(dept, province) {
+            if (!province) return "";
+            const deptRow = ubigeoDeptFor(dept);
+            const row = ubigeo.provinces.find(p =>
+                (!deptRow || p.departamento_id === deptRow.id) &&
+                normProvince(p.provincia) === normProvince(province));
+            return row ? row.provincia : province;
         }
 
         function titleCase(value) {
@@ -704,127 +763,185 @@ def index():
             const p = feature.properties || {};
             if (level === "departments") return String(p.FIRST_IDDP || p.IDDPTO || p.IDDP || "").padStart(2, "0");
             if (level === "provinces") return String(p.FIRST_IDPR || p.IDPROV || p.IDPRO || "").padStart(4, "0");
-            return String(p.IDDIST || p.FIRST_IDDI || p.IDDISTRITO || "").padStart(6, "0");
-        }
-
-        function wellKeyForDept(dept) {
-            const found = Object.keys(wells).find(k => norm(k) === norm(dept));
-            return found || titleCase(dept);
-        }
-
-        function wellsForDept(dept) {
-            return wells[wellKeyForDept(dept)] || [];
-        }
-
-        function electionForDept(dept) {
-            const feature = geo.departments?.features?.find(f => norm(getDeptName(f)) === norm(dept));
-            const byCode = feature ? electionGeo.departments[featureUbigeo(feature, "departments")] : null;
-            return byCode || electionResults[norm(dept)] || null;
-        }
-
-        function electionForProvince(dept, province) {
-            const feature = geo.provinces?.features?.find(f => norm(getDeptName(f)) === norm(dept) && norm(getProvinceName(f)) === norm(province));
-            const byCode = feature ? electionGeo.provinces[featureUbigeo(feature, "provinces")] : null;
-            return byCode || provinceElectionOverrides[`${norm(dept)}|${norm(province)}`] || electionForDept(dept);
-        }
-
-        function electionForDistrict(dept, province, district) {
-            const feature = geo.districts?.features?.find(f =>
-                norm(getDeptName(f)) === norm(dept) &&
-                norm(getProvinceName(f)) === norm(province) &&
-                norm(getDistrictName(f)) === norm(district)
-            );
-            const byCode = feature ? electionGeo.districts[featureUbigeo(feature, "districts")] : null;
-            return byCode || districtElectionOverrides[`${norm(dept)}|${norm(province)}|${norm(district)}`] || electionForProvince(dept, province);
-        }
-
-        function winnerName(result) {
-            if (!result) return "Sin dato";
-            return result.winner === "keiko" ? "Keiko Fujimori" : "Roberto Sánchez / JP";
-        }
-
-        function resultForFeature(feature, level) {
-            if (!feature) return null;
-            const byCode = electionGeo[level]?.[featureUbigeo(feature, level)];
-            if (byCode) return byCode;
-            if (level === "departments") return electionForDept(getDeptName(feature));
-            if (level === "provinces") return electionForProvince(getDeptName(feature), getProvinceName(feature));
-            return electionForDistrict(getDeptName(feature), getProvinceName(feature), getDistrictName(feature));
-        }
-
-        function aggregateResults(features, level) {
-            return features.reduce((acc, feature) => {
-                const result = resultForFeature(feature, level);
-                if (!result) return acc;
-                acc.keiko += Number(result.keiko || 0);
-                acc.sanchez += Number(result.sanchez || 0);
-                acc.mesas += Number(result.mesas || 0);
-                return acc;
-            }, { keiko: 0, sanchez: 0, mesas: 0 });
-        }
-
-        function completeResult(result) {
-            if (!result) return null;
-            const keiko = Number(result.keiko || 0);
-            const sanchez = Number(result.sanchez || 0);
-            return {
-                ...result,
-                keiko,
-                sanchez,
-                mesas: Number(result.mesas || 0),
-                winner: keiko >= sanchez ? "keiko" : "sanchez",
-                margin: Math.abs(keiko - sanchez)
-            };
+            return String(p.IDDIST || p.UBIGEO || p.CODIGO || p.FIRST_IDDI || p.IDDISTRITO || "").padStart(6, "0");
         }
 
         function formatNumber(value) {
             return Math.round(Number(value || 0)).toLocaleString("es-PE");
         }
 
-        function pct(value, total) {
-            if (!total) return "0.0%";
-            return `${((Number(value || 0) / total) * 100).toFixed(1)}%`;
+        function pozoRowsIn(dept, prov, dist) {
+            return pozosData.filter(r => {
+                if (norm(r.departamento) !== norm(dept)) return false;
+                if (prov && normProvince(r.provincia) !== normProvince(prov)) return false;
+                if (dist && norm(r.distrito) !== norm(dist)) return false;
+                return true;
+            });
         }
 
-        function renderVoteStats(elementId, title, result, detail = "") {
+        // Si la zona tiene un valor cargado a mano, ese manda.
+        // Si no, se suman los valores de las zonas de adentro.
+        function pozoSummary(dept, prov, dist) {
+            const rows = pozoRowsIn(dept, prov, dist);
+            if (!rows.length) return null;
+            const own = rows.find(r =>
+                normProvince(r.provincia) === normProvince(prov || "") &&
+                norm(r.distrito) === norm(dist || ""));
+            if (own) return { pozos: own.pozos || 0, petar: !!own.petar, propio: true, zonas: 1 };
+            return {
+                pozos: rows.reduce((sum, r) => sum + (r.pozos || 0), 0),
+                petar: rows.some(r => r.petar),
+                propio: false,
+                zonas: rows.length
+            };
+        }
+
+        function pozoSummaryPeru() {
+            const depts = [...new Set(pozosData.map(r => norm(r.departamento)))];
+            if (!depts.length) return null;
+            let pozos = 0, petar = false;
+            depts.forEach(d => {
+                const item = pozoSummary(d, null, null);
+                if (!item) return;
+                pozos += item.pozos;
+                petar = petar || item.petar;
+            });
+            return { pozos, petar, propio: false, zonas: depts.length };
+        }
+
+        function zoneForFeature(feature, level) {
+            if (level === "departments") return { dept: getDeptName(feature) };
+            if (level === "provinces") return { dept: getDeptName(feature), prov: getProvinceName(feature) };
+            return { dept: getDeptName(feature), prov: getProvinceName(feature), dist: getDistrictName(feature) };
+        }
+
+        function renderPozoStats(elementId, title, zone, detail = "") {
             const el = document.getElementById(elementId);
             if (!el) return;
-            const data = completeResult(result);
-            if (!data || (!data.keiko && !data.sanchez)) {
+            // Con el formulario abierto el hover del mapa no debe pisarlo
+            if (editingPanels.has(elementId)) return;
+            panelZones[elementId] = { title, zone, detail };
+            const data = zone && zone.dept
+                ? pozoSummary(zone.dept, zone.prov, zone.dist)
+                : pozoSummaryPeru();
+            const editable = !!(zone && zone.dept);
+            const btnLabel = data && data.propio ? "Editar" : "Agregar";
+            const btn = editable
+                ? `<button class="card-btn ok" onclick="startEdit('${elementId}')">${btnLabel}</button>`
+                : `<button class="card-btn" disabled title="Elige una zona en el mapa">Editar</button>`;
+            if (!data) {
                 el.innerHTML = `
                     <div class="vote-title">${esc(title)}</div>
-                    <div class="vote-foot">Sin datos de votación para esta vista</div>
+                    <div class="pozo-row"><span>Pozos</span><span class="pozo-val">—</span></div>
+                    <div class="pozo-row"><span>Petar</span><span class="pozo-val no">Sin cargar</span></div>
+                    <div class="vote-foot">${editable ? "Sin datos para esta zona" : "Elige una zona en el mapa"}</div>
+                    <div class="card-btns">${btn}</div>
                 `;
                 return;
             }
-            const total = data.keiko + data.sanchez;
-            const winner = winnerName(data);
+            const foot = data.propio
+                ? `Cargado para esta zona${detail ? ` · ${esc(detail)}` : ""}`
+                : `Suma de ${data.zonas} zona${data.zonas !== 1 ? "s" : ""} cargada${data.zonas !== 1 ? "s" : ""}${detail ? ` · ${esc(detail)}` : ""}`;
             el.innerHTML = `
                 <div class="vote-title">${esc(title)}</div>
-                <div class="vote-row">
-                    <span>Keiko</span>
-                    <div class="vote-bar"><div class="vote-fill keiko" style="width:${pct(data.keiko, total)}"></div></div>
-                    <span>${pct(data.keiko, total)}</span>
-                </div>
-                <div class="vote-row">
-                    <span>JP</span>
-                    <div class="vote-bar"><div class="vote-fill sanchez" style="width:${pct(data.sanchez, total)}"></div></div>
-                    <span>${pct(data.sanchez, total)}</span>
-                </div>
-                <div class="vote-foot">${esc(winner)} gana · ${formatNumber(total)} votos${detail ? ` · ${esc(detail)}` : ""}</div>
+                <div class="pozo-row"><span>Pozos</span><span class="pozo-val">${formatNumber(data.pozos)}</span></div>
+                <div class="pozo-row"><span>Petar</span><span class="pozo-val ${data.petar ? "si" : "no"}">${data.petar ? "Sí hay" : "No hay"}</span></div>
+                <div class="vote-foot">${foot}</div>
+                <div class="card-btns">${btn}</div>
             `;
+        }
+
+        function startEdit(elementId) {
+            const panel = panelZones[elementId];
+            const el = document.getElementById(elementId);
+            if (!panel || !el || !panel.zone || !panel.zone.dept) return;
+            const { title, zone } = panel;
+            const own = pozosData.find(r =>
+                norm(r.departamento) === norm(zone.dept) &&
+                normProvince(r.provincia) === normProvince(zone.prov || "") &&
+                norm(r.distrito) === norm(zone.dist || ""));
+            editingPanels.add(elementId);
+            el.innerHTML = `
+                <div class="vote-title">${esc(title)}</div>
+                <div class="pozo-row">
+                    <span>Pozos</span>
+                    <input class="pozo-input" id="${elementId}-pozos" type="number" min="0" step="1" value="${own ? own.pozos : ""}" placeholder="0"/>
+                </div>
+                <div class="pozo-row">
+                    <span>Petar</span>
+                    <select class="pozo-input" id="${elementId}-petar">
+                        <option value="0"${own && own.petar ? "" : " selected"}>No hay</option>
+                        <option value="1"${own && own.petar ? " selected" : ""}>Sí hay</option>
+                    </select>
+                </div>
+                <div class="vote-foot">${esc(zoneLabel(zone))}</div>
+                <div class="card-btns">
+                    <button class="card-btn" onclick="cancelEdit('${elementId}')">Cancelar</button>
+                    <button class="card-btn ok" onclick="saveEdit('${elementId}')">Guardar</button>
+                </div>
+            `;
+            document.getElementById(`${elementId}-pozos`).focus();
+        }
+
+        function zoneLabel(zone) {
+            if (zone.dist) return "Se guarda en el distrito";
+            if (zone.prov) return "Se guarda en la provincia";
+            return "Se guarda en el departamento";
+        }
+
+        function cancelEdit(elementId) {
+            editingPanels.delete(elementId);
+            const panel = panelZones[elementId];
+            if (panel) renderPozoStats(elementId, panel.title, panel.zone, panel.detail);
+        }
+
+        async function saveEdit(elementId) {
+            const panel = panelZones[elementId];
+            if (!panel) return;
+            const { zone } = panel;
+            const cantidad = Number(document.getElementById(`${elementId}-pozos`).value);
+            if (!Number.isFinite(cantidad) || cantidad < 0) {
+                alert("Ingresa una cantidad de pozos válida (0 o más)");
+                return;
+            }
+            const petar = document.getElementById(`${elementId}-petar`).value === "1";
+            try {
+                const res = await fetch("/api/pozos", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        departamento: zone.dept,
+                        provincia: canonicalProvince(zone.dept, zone.prov),
+                        distrito: zone.dist || "",
+                        pozos: cantidad,
+                        petar: petar
+                    })
+                });
+                if (!res.ok) throw new Error("Error al guardar");
+                editingPanels.delete(elementId);
+                await loadPozos();
+                refreshCurrentView();
+            } catch (e) {
+                alert("Error: " + e.message);
+            }
+        }
+
+        function hasGeometry(feature) {
+            return !!(feature && feature.geometry);
         }
 
         function provincesForDept(dept) {
             return geo.provinces.features
+                .filter(hasGeometry)
                 .filter(f => norm(getDeptName(f)) === norm(dept))
                 .sort((a, b) => getProvinceName(a).localeCompare(getProvinceName(b), "es"));
         }
 
         function districtsFor(dept, province = null) {
             return geo.districts.features
+                .filter(hasGeometry)
                 .filter(f => norm(getDeptName(f)) === norm(dept))
-                .filter(f => !province || norm(getProvinceName(f)) === norm(province))
+                .filter(f => !province || normProvince(getProvinceName(f)) === normProvince(province))
                 .sort((a, b) => {
                     const prov = getProvinceName(a).localeCompare(getProvinceName(b), "es");
                     return prov || getDistrictName(a).localeCompare(getDistrictName(b), "es");
@@ -848,20 +965,21 @@ def index():
             if (!deptRow) return districtsFor(dept, province).map(f => ({ distrito: getDistrictName(f), provincia_id: null }));
             let rows = ubigeo.districts.filter(d => d.departamento_id === deptRow.id);
             if (province) {
-                const provRow = ubigeo.provinces.find(p => p.departamento_id === deptRow.id && norm(p.provincia) === norm(province));
+                const provRow = ubigeo.provinces.find(p => p.departamento_id === deptRow.id && normProvince(p.provincia) === normProvince(province));
                 rows = provRow ? rows.filter(d => d.provincia_id === provRow.id) : [];
             }
             return rows.sort((a, b) => a.distrito.localeCompare(b.distrito, "es"));
         }
 
-        function hasWellsForFeature(feature) {
-            return wellsForDept(getDeptName(feature)).length > 0;
+        function districtsWithoutMap(dept, province = null) {
+            const conMapa = new Set(districtsFor(dept, province).map(f => norm(getDistrictName(f))));
+            return districtRowsFor(dept, province)
+                .map(row => row.distrito)
+                .filter(name => !conMapa.has(norm(name)));
         }
 
-        function getFill(feature, index, level) {
-            const result = resultForFeature(feature, level);
-            if (!result) return palette[index % palette.length];
-            return result.winner === "keiko" ? "#E8752A" : "#1FA64A";
+        function getFill() {
+            return MAP_GREEN;
         }
 
         function redrawMap() {
@@ -931,12 +1049,26 @@ def index():
             return (nudges[level] && nudges[level][name]) || [0, 0];
         }
 
+        function labelMetrics(level) {
+            return level === "departments"
+                ? { factor: 0.64, padX: 8, padY: 6 }
+                : { factor: 0.70, padX: 13, padY: 9 };
+        }
+
         function boxesOverlap(a, b) {
             return !(a.x2 < b.x1 || a.x1 > b.x2 || a.y2 < b.y1 || a.y1 > b.y2);
         }
 
+        // Zona que tapa la tarjeta de pozos (abajo a la izquierda del mapa)
+        const CARD_BOX = { x1: -2, x2: 208, y1: H - 138, y2: H + 2 };
+
+        function overlapsCard(box) {
+            return boxesOverlap(box, CARD_BOX);
+        }
+
         function buildLabels(features, level, pathFn) {
             const fontSize = labelFontSize(level, features.length);
+            const metrics = labelMetrics(level);
             const items = features.map((feature, index) => {
                 const [baseX, baseY] = pathFn.centroid(feature);
                 const [nudgeX, nudgeY] = labelCenterNudge(feature, level);
@@ -946,8 +1078,8 @@ def index():
                 const area = Math.abs((bounds[1][0] - bounds[0][0]) * (bounds[1][1] - bounds[0][1]));
                 const lines = splitLabel(getAreaName(feature, level), level);
                 const maxLine = Math.max(...lines.map(line => line.length));
-                const width = maxLine * fontSize * 0.64 + 8;
-                const height = lines.length * fontSize * 1.18 + 6;
+                const width = maxLine * fontSize * metrics.factor + metrics.padX;
+                const height = lines.length * fontSize * 1.18 + metrics.padY;
                 return {
                     feature,
                     index,
@@ -956,6 +1088,7 @@ def index():
                     area,
                     lines,
                     fontSize,
+                    metrics,
                     width,
                     height,
                     box: {
@@ -970,7 +1103,8 @@ def index():
             const placed = [];
             const skipped = [];
             items.forEach(item => {
-                const insideCanvas = item.box.x1 >= 0 && item.box.y1 >= 0 && item.box.x2 <= W && item.box.y2 <= H;
+                const insideCanvas = item.box.x1 >= 0 && item.box.y1 >= 0 && item.box.x2 <= W && item.box.y2 <= H
+                    && !overlapsCard(item.box);
                 const collides = placed.some(other => boxesOverlap(item.box, other.box));
                 if (insideCanvas && !collides) placed.push(item);
                 else skipped.push(item);
@@ -980,8 +1114,10 @@ def index():
 
         function movedLabel(item, dx, dy, scale = 1) {
             const fontSize = item.fontSize * scale;
-            const width = item.width * scale;
-            const height = item.height * scale;
+            const metrics = item.metrics || labelMetrics("districts");
+            const maxLine = Math.max(...item.lines.map(line => line.length));
+            const width = maxLine * fontSize * metrics.factor + metrics.padX;
+            const height = item.lines.length * fontSize * 1.18 + metrics.padY;
             const x = item.x + dx;
             const y = item.y + dy;
             return {
@@ -1033,7 +1169,8 @@ def index():
                     for (const scale of scales) {
                         for (const [dx, dy] of offsets) {
                             const candidate = movedLabel(item, dx, dy, scale);
-                            const insideCanvas = candidate.box.x1 >= 2 && candidate.box.y1 >= 2 && candidate.box.x2 <= W - 2 && candidate.box.y2 <= H - 2;
+                            const insideCanvas = candidate.box.x1 >= 2 && candidate.box.y1 >= 2 && candidate.box.x2 <= W - 2 && candidate.box.y2 <= H - 2
+                                && !overlapsCard(candidate.box);
                             const insideFeature = labelPointInsideFeature(candidate, projection);
                             const collides = placed.some(other => boxesOverlap(candidate.box, other.box));
                             if (insideCanvas && insideFeature && !collides) {
@@ -1047,7 +1184,8 @@ def index():
                         for (const scale of scales) {
                             for (const [dx, dy] of offsets) {
                                 const candidate = movedLabel(item, dx, dy, scale);
-                                const insideCanvas = candidate.box.x1 >= 2 && candidate.box.y1 >= 2 && candidate.box.x2 <= W - 2 && candidate.box.y2 <= H - 2;
+                                const insideCanvas = candidate.box.x1 >= 2 && candidate.box.y1 >= 2 && candidate.box.x2 <= W - 2 && candidate.box.y2 <= H - 2
+                                && !overlapsCard(candidate.box);
                                 const collides = placed.some(other => boxesOverlap(candidate.box, other.box));
                                 if (insideCanvas && !collides) {
                                     chosen = candidate;
@@ -1082,14 +1220,50 @@ def index():
             }
         }
 
+        // El lado izquierdo se corta antes de la tarjeta de pozos
+        function calloutRange(side) {
+            return side === "left" ? [28, CARD_BOX.y1 - 12] : [28, H - 28];
+        }
+
+        // Cuántas etiquetas caben en un lado con separación legible
+        function calloutCapacity(items, side) {
+            const [top, bottom] = calloutRange(side);
+            const slot = Math.max(...items.map(item =>
+                item.lines.length * item.fontSize * 1.12 + 4));
+            return Math.max(1, Math.floor((bottom - top) / slot));
+        }
+
+        // Si un lado se llena y al otro le sobra sitio, las etiquetas
+        // sobrantes se pasan allí en vez de quedarse sin mostrar.
+        function balanceCalloutSides(items) {
+            ["left", "right"].forEach(side => {
+                const other = side === "left" ? "right" : "left";
+                const capacity = calloutCapacity(items, side);
+                const otherCapacity = calloutCapacity(items, other);
+                items
+                    .filter(item => item.side === side)
+                    .sort((a, b) => b.area - a.area)
+                    .slice(capacity)
+                    .forEach(item => {
+                        if (items.filter(i => i.side === other).length < otherCapacity) item.side = other;
+                    });
+            });
+        }
+
+        // Reparte los callouts de un lado y descarta los que no entran con
+        // separación legible, quedándose con las zonas de mayor superficie.
         function distributeCallouts(items, side) {
-            const top = 28;
-            const bottom = H - 28;
-            const sorted = items
-                .filter(item => item.side === side)
+            const [top, bottom] = calloutRange(side);
+            const candidates = items.filter(item => item.side === side);
+            if (!candidates.length) return [];
+            const capacity = calloutCapacity(items, side);
+            const sorted = candidates
+                .slice()
+                .sort((a, b) => b.area - a.area)
+                .slice(0, capacity)
                 .sort((a, b) => a.y - b.y);
             sorted.forEach((item, index) => {
-                item.labelY = top + ((index + 0.5) * (bottom - top)) / Math.max(sorted.length, 1);
+                item.labelY = top + ((index + 0.5) * (bottom - top)) / sorted.length;
             });
             return sorted;
         }
@@ -1131,6 +1305,7 @@ def index():
                 item.fontSize = item.fontSize || 8.5;
             });
 
+            balanceCalloutSides(items);
             const all = [
                 ...distributeCallouts(items, "left"),
                 ...distributeCallouts(items, "right")
@@ -1203,7 +1378,7 @@ def index():
                 if (statsConfig?.id) renderEmptyStats(statsConfig.id, "Sin mapa disponible");
                 return;
             }
-            if (statsConfig?.id) renderVoteStats(statsConfig.id, statsConfig.title, statsConfig.result, statsConfig.detail);
+            if (statsConfig?.id) renderPozoStats(statsConfig.id, statsConfig.title, statsConfig.zone, statsConfig.detail);
 
             const collection = focusCollection || { type: "FeatureCollection", features };
             const useCallouts = level === "districts" && features.length > 10;
@@ -1220,16 +1395,19 @@ def index():
                 .attr("stroke", d => {
                     if (level === "departments" && norm(getDeptName(d)) === norm(selectedDept)) return "#14324a";
                     if (level === "provinces" && norm(getProvinceName(d)) === norm(selectedProvince)) return "#14324a";
+                    if (level === "districts" && selectedDistrict && norm(getDistrictName(d)) === norm(selectedDistrict)) return "#14324a";
                     return "#ffffff";
                 })
                 .attr("stroke-width", d => {
                     if (level === "departments" && norm(getDeptName(d)) === norm(selectedDept)) return 2.4;
                     if (level === "provinces" && norm(getProvinceName(d)) === norm(selectedProvince)) return 2.4;
+                    if (level === "districts" && selectedDistrict && norm(getDistrictName(d)) === norm(selectedDistrict)) return 2.4;
                     return level === "districts" ? 1.15 : 1.35;
                 })
                 .attr("data-stroke-width", d => {
                     if (level === "departments" && norm(getDeptName(d)) === norm(selectedDept)) return 2.4;
                     if (level === "provinces" && norm(getProvinceName(d)) === norm(selectedProvince)) return 2.4;
+                    if (level === "districts" && selectedDistrict && norm(getDistrictName(d)) === norm(selectedDistrict)) return 2.4;
                     return level === "districts" ? 1.15 : 1.35;
                 })
                 .attr("fill", (d, i) => getFill(d, i, level))
@@ -1238,10 +1416,10 @@ def index():
                 .on("mouseover", function (e, d) {
                     d3.select(this).attr("fill", "#4fc3f7");
                     if (statsConfig?.id) {
-                        renderVoteStats(
+                        renderPozoStats(
                             statsConfig.id,
                             getAreaName(d, level),
-                            resultForFeature(d, level),
+                            zoneForFeature(d, level),
                             "vista seleccionada"
                         );
                     }
@@ -1249,7 +1427,7 @@ def index():
                 .on("mouseout", function (e, d) {
                     const i = features.indexOf(d);
                     d3.select(this).attr("fill", getFill(d, i, level));
-                    if (statsConfig?.id) renderVoteStats(statsConfig.id, statsConfig.title, statsConfig.result, statsConfig.detail);
+                    if (statsConfig?.id) renderPozoStats(statsConfig.id, statsConfig.title, statsConfig.zone, statsConfig.detail);
                 })
                 .on("click", (e, d) => onClick && onClick(d));
             const labelLimit = level === "districts" ? 95 : 220;
@@ -1299,20 +1477,17 @@ def index():
 
         function renderDepartments() {
             currentLevel = "departments";
-            document.getElementById("deptMeta").textContent = "Naranja Keiko · verde JP";
+            document.getElementById("deptMeta").textContent = "Pozos y petar por departamento";
             const selectedFeature = selectedDept
                 ? geo.departments.features.find(f => norm(getDeptName(f)) === norm(selectedDept))
                 : null;
             const statsTitle = selectedFeature ? titleCase(getDeptName(selectedFeature)) : "Perú completo";
-            const statsResult = selectedFeature
-                ? resultForFeature(selectedFeature, "departments")
-                : aggregateResults(geo.departments.features, "departments");
             renderMap("deptMap", geo.departments.features, "departments", d => {
                 showDepartment(getDeptName(d));
             }, geo.departments, {
                 id: "deptStats",
                 title: statsTitle,
-                result: statsResult,
+                zone: selectedFeature ? { dept: getDeptName(selectedFeature) } : null,
                 detail: selectedFeature ? "departamento" : "25 departamentos"
             });
         }
@@ -1329,11 +1504,14 @@ def index():
             document.getElementById("districtMeta").textContent = "Aparecen al elegir una provincia";
             renderEmpty("districtMap", "Selecciona una provincia");
             renderEmptyStats("districtStats", "Distritos");
+            document.getElementById("districtNoMap").innerHTML = "";
         }
 
         function showDepartments() {
             selectedDept = null;
             selectedProvince = null;
+            selectedDistrict = null;
+            editingPanels.clear();
             renderDepartments();
             clearProvinces();
             clearDistricts();
@@ -1342,6 +1520,8 @@ def index():
         function showDepartment(dept) {
             selectedDept = dept;
             selectedProvince = null;
+            selectedDistrict = null;
+            editingPanels.clear();
             renderDepartments();
             renderProvinces(dept);
             clearDistricts();
@@ -1354,16 +1534,18 @@ def index():
             const niceDept = titleCase(dept);
             currentLevel = "provinces";
             document.getElementById("provinceTitle").textContent = `Provincias de ${niceDept}`;
-            document.getElementById("provinceMeta").textContent = `Naranja Keiko · verde JP · ${provinceCount} provincias · ${districtCount} distritos`;
+            document.getElementById("provinceMeta").textContent = `${provinceCount} provincias · ${districtCount} distritos`;
             const selectedFeature = selectedProvince
-                ? features.find(f => norm(getProvinceName(f)) === norm(selectedProvince))
+                ? features.find(f => normProvince(getProvinceName(f)) === normProvince(selectedProvince))
                 : null;
             renderMap("provinceMap", features, "provinces", d => {
                 showProvince(dept, getProvinceName(d));
             }, null, {
                 id: "provinceStats",
                 title: selectedFeature ? titleCase(getProvinceName(selectedFeature)) : niceDept,
-                result: selectedFeature ? resultForFeature(selectedFeature, "provinces") : aggregateResults(features, "provinces"),
+                zone: selectedFeature
+                    ? { dept, prov: getProvinceName(selectedFeature) }
+                    : { dept },
                 detail: selectedFeature ? "provincia" : `${provinceCount} provincias`
             });
         }
@@ -1371,31 +1553,112 @@ def index():
         function showProvince(dept, province) {
             selectedDept = dept;
             selectedProvince = province;
+            selectedDistrict = null;
+            editingPanels.clear();
             renderDepartments();
             renderProvinces(dept);
             renderDistricts(dept, province);
         }
 
+        function selectDistrict(district) {
+            selectedDistrict = norm(district) === norm(selectedDistrict) ? null : district;
+            editingPanels.clear();
+            renderDistricts(selectedDept, selectedProvince);
+        }
+
         function renderDistricts(dept, province) {
             const features = districtsFor(dept, province);
             const districtCount = districtRowsFor(dept, province).length;
-            const result = electionForProvince(dept, province);
             currentLevel = "districts";
             document.getElementById("districtTitle").textContent = `Distritos de ${titleCase(province)}`;
-            document.getElementById("districtMeta").textContent = `${winnerName(result)} en ${titleCase(province)} · ${districtCount} distritos`;
-            renderMap("districtMap", features, "districts", null, null, {
+            const sinMapa = districtsWithoutMap(dept, province);
+            document.getElementById("districtMeta").textContent = sinMapa.length
+                ? `${districtCount} distritos · sin contorno: ${sinMapa.map(titleCase).join(", ")}`
+                : `${districtCount} distritos`;
+            document.getElementById("districtNoMap").innerHTML = sinMapa.map(name =>
+                `<button class="nomap-chip" title="Sin contorno en el mapa — clic para cargar sus pozos"
+                    onclick="openModal({ dept: ${jsArg(dept)}, prov: ${jsArg(province)}, dist: ${jsArg(name)} })">
+                    ${esc(titleCase(name))} ⚑
+                </button>`).join("");
+            const selectedFeature = selectedDistrict
+                ? features.find(f => norm(getDistrictName(f)) === norm(selectedDistrict))
+                : null;
+            renderMap("districtMap", features, "districts", d => {
+                selectDistrict(getDistrictName(d));
+            }, null, {
                 id: "districtStats",
-                title: titleCase(province),
-                result: aggregateResults(features, "districts"),
-                detail: `${districtCount} distritos`
+                title: selectedFeature ? titleCase(getDistrictName(selectedFeature)) : titleCase(province),
+                zone: selectedFeature
+                    ? { dept, prov: province, dist: getDistrictName(selectedFeature) }
+                    : { dept, prov: province },
+                detail: selectedFeature ? "distrito" : `${districtCount} distritos`
             });
         }
 
-        function openModal(dept) {
-            document.getElementById("mtitle").textContent = "Agregar pozo — " + dept;
-            document.getElementById("mbg").dataset.dept = dept;
-            ["fn", "fd", "fp", "fo", "fy"].forEach(id => document.getElementById(id).value = "");
-            document.getElementById("fe").value = "Activo";
+        function fillSelect(select, options, placeholder) {
+            select.innerHTML = "";
+            const blank = document.createElement("option");
+            blank.value = "";
+            blank.textContent = placeholder;
+            select.appendChild(blank);
+            options.forEach(name => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = titleCase(name);
+                select.appendChild(opt);
+            });
+        }
+
+        function refreshProvOptions() {
+            const dept = document.getElementById("zDept").value;
+            const names = dept ? provinceRowsForDept(dept).map(r => r.provincia) : [];
+            fillSelect(document.getElementById("zProv"), names, "— Todo el departamento —");
+            refreshDistOptions();
+        }
+
+        function refreshDistOptions() {
+            const dept = document.getElementById("zDept").value;
+            const prov = document.getElementById("zProv").value;
+            const names = dept && prov ? districtRowsFor(dept, prov).map(r => r.distrito) : [];
+            fillSelect(document.getElementById("zDist"), names, "— Toda la provincia —");
+        }
+
+        // Al elegir una zona ya cargada, muestra sus valores para poder corregirlos.
+        function loadZoneIntoForm() {
+            const dept = document.getElementById("zDept").value;
+            if (!dept) return;
+            const prov = document.getElementById("zProv").value;
+            const dist = document.getElementById("zDist").value;
+            const row = pozosData.find(r =>
+                norm(r.departamento) === norm(dept) &&
+                norm(r.provincia) === norm(prov) &&
+                norm(r.distrito) === norm(dist));
+            document.getElementById("zPozos").value = row ? row.pozos : "";
+            document.getElementById("zPetar").value = row && row.petar ? "1" : "0";
+        }
+
+        function pickOption(select, value, useProvinceAlias = false) {
+            if (!value) return false;
+            const same = useProvinceAlias
+                ? (a, b) => normProvince(a) === normProvince(b)
+                : (a, b) => norm(a) === norm(b);
+            const match = [...select.options].find(o => same(o.value, value));
+            if (match) select.value = match.value;
+            return !!match;
+        }
+
+        function openModal(preset = null) {
+            const dept = preset ? preset.dept : selectedDept;
+            const prov = preset ? preset.prov : selectedProvince;
+            const dist = preset ? preset.dist : null;
+            const depts = ubigeo.departments.map(d => d.departamento);
+            const zDept = document.getElementById("zDept");
+            fillSelect(zDept, depts, "— Elige un departamento —");
+            pickOption(zDept, dept);
+            refreshProvOptions();
+            if (pickOption(document.getElementById("zProv"), prov, true)) refreshDistOptions();
+            pickOption(document.getElementById("zDist"), dist);
+            loadZoneIntoForm();
             document.getElementById("mbg").classList.add("open");
         }
 
@@ -1403,79 +1666,60 @@ def index():
             document.getElementById("mbg").classList.remove("open");
         }
 
-        async function saveWell() {
-            const dept = document.getElementById("mbg").dataset.dept;
-            const nombre = document.getElementById("fn").value.trim();
-            if (!nombre) { alert("Ingresa el nombre del pozo"); return; }
-            
+        // Repinta los 3 mapas conservando lo que el usuario tenía seleccionado
+        function refreshCurrentView() {
+            renderDepartments();
+            if (selectedDept) renderProvinces(selectedDept); else clearProvinces();
+            if (selectedDept && selectedProvince) renderDistricts(selectedDept, selectedProvince); else clearDistricts();
+        }
+
+        async function savePozos() {
+            const dept = document.getElementById("zDept").value;
+            if (!dept) { alert("Elige un departamento"); return; }
+            const cantidad = Number(document.getElementById("zPozos").value);
+            if (!Number.isFinite(cantidad) || cantidad < 0) {
+                alert("Ingresa una cantidad de pozos válida (0 o más)");
+                return;
+            }
             try {
-                const res = await fetch("/api/wells", {
+                const res = await fetch("/api/pozos", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         departamento: dept,
-                        nombre: nombre,
-                        profundidad: Number(document.getElementById("fd").value) || 0,
-                        produccion: Number(document.getElementById("fp").value) || 0,
-                        operador: document.getElementById("fo").value || "—",
-                        anio: Number(document.getElementById("fy").value) || 0,
-                        estado: document.getElementById("fe").value
+                        provincia: document.getElementById("zProv").value,
+                        distrito: document.getElementById("zDist").value,
+                        pozos: cantidad,
+                        petar: document.getElementById("zPetar").value === "1"
                     })
                 });
                 if (!res.ok) throw new Error("Error al guardar");
                 closeModal();
-                await loadWells();
-                redrawMap();
-                if (selectedDept && selectedProvince) showProvince(selectedDept, selectedProvince);
-                else if (selectedDept) showDepartment(selectedDept);
-                else showDepartments();
-            } catch (e) {
-                alert("Error: " + e.message);
-            }
-        }
-
-        async function delWell(dept, id) {
-            if (!confirm("¿Eliminar este pozo?")) return;
-            try {
-                const res = await fetch("/api/wells/" + id, { method: "DELETE" });
-                if (!res.ok) throw new Error("Error al eliminar");
-                await loadWells();
-                redrawMap();
-                if (selectedDept && selectedProvince) showProvince(selectedDept, selectedProvince);
-                else if (selectedDept) showDepartment(selectedDept);
-                else showDepartments();
+                await loadPozos();
+                refreshCurrentView();
             } catch (e) {
                 alert("Error: " + e.message);
             }
         }
 
         async function init() {
-            await loadWells();
-
             try {
-                const [departments, provinces, districts, ubigeoDepartments, ubigeoProvinces, ubigeoDistricts, electionResultsByUbigeo] = await Promise.all([
+                const [departments, provinces, districts, ubigeoDepartments, ubigeoProvinces, ubigeoDistricts] = await Promise.all([
                     fetch(DATA_URLS.departments).then(r => r.json()),
                     fetch(DATA_URLS.provinces).then(r => r.json()),
                     fetch(DATA_URLS.districts).then(r => r.json()),
                     fetch(DATA_URLS.ubigeoDepartments).then(r => r.json()),
                     fetch(DATA_URLS.ubigeoProvinces).then(r => r.json()),
-                    fetch(DATA_URLS.ubigeoDistricts).then(r => r.json()),
-                    fetch(DATA_URLS.electionResults).then(r => r.json())
+                    fetch(DATA_URLS.ubigeoDistricts).then(r => r.json())
                 ]);
                 geo = { departments, provinces, districts };
-                electionGeo = {
-                    departments: electionResultsByUbigeo.departments || {},
-                    provinces: electionResultsByUbigeo.provinces || {},
-                    districts: electionResultsByUbigeo.districts || {}
-                };
                 ubigeo = {
                     departments: ubigeoDepartments.ubigeo_departamentos,
                     provinces: ubigeoProvinces.ubigeo_provincias,
                     districts: ubigeoDistricts.ubigeo_distritos
                 };
                 showDepartments();
-                setDbStatus("Datos electorales cargados — departamentos, provincias y distritos");
-
+                await loadPozos();
             } catch (e) {
                 console.error(e);
                 setDbStatus("Error cargando mapa", true);
@@ -1488,21 +1732,50 @@ def index():
 </html>
     """
 
+ARCHIVOS_DATOS = {
+    'd3.v7.min.js',
+    'peru_departamental_simple.geojson',
+    'peru_provincial_simple.geojson',
+    'peru_distrital_simple.geojson',
+    'ubigeo_departamentos.json',
+    'ubigeo_provincias.json',
+    'ubigeo_distritos.json',
+}
+
+# Los mapas son estáticos y pesados: se comprimen una sola vez y se reutilizan.
+_GZIP_CACHE = {}
+
+
+def _gzip_datos(filename, ruta):
+    marca = os.path.getmtime(ruta)
+    guardado = _GZIP_CACHE.get(filename)
+    if not guardado or guardado[0] != marca:
+        with open(ruta, 'rb') as fh:
+            guardado = (marca, gzip.compress(fh.read(), 6))
+        _GZIP_CACHE[filename] = guardado
+    return guardado
+
+
 @app.route('/data/<path:filename>')
 def data_file(filename):
-    allowed = {
-        'd3.v7.min.js',
-        'peru_departamental_simple.geojson',
-        'peru_provincial_simple.geojson',
-        'peru_distrital_simple.geojson',
-        'ubigeo_departamentos.json',
-        'ubigeo_provincias.json',
-        'ubigeo_distritos.json',
-        'election_results_ubigeo.json',
-    }
-    if filename not in allowed:
+    if filename not in ARCHIVOS_DATOS:
         return jsonify({"error": "Archivo no permitido"}), 404
-    return send_from_directory(BASE_DIR, filename)
+    ruta = os.path.join(BASE_DIR, filename)
+    tipo = 'application/javascript' if filename.endswith('.js') else 'application/json'
+    cache = 'public, max-age=86400'
+
+    if 'gzip' not in request.headers.get('Accept-Encoding', ''):
+        respuesta = send_from_directory(BASE_DIR, filename)
+        respuesta.headers['Cache-Control'] = cache
+        return respuesta
+
+    marca, comprimido = _gzip_datos(filename, ruta)
+    respuesta = Response(comprimido, mimetype=tipo)
+    respuesta.headers['Content-Encoding'] = 'gzip'
+    respuesta.headers['Cache-Control'] = cache
+    respuesta.headers['Vary'] = 'Accept-Encoding'
+    respuesta.set_etag(f"{int(marca)}-{len(comprimido)}")
+    return respuesta.make_conditional(request)
 
 @app.route('/api/wells', methods=['GET'])
 def get_wells():
@@ -1542,6 +1815,51 @@ def add_well():
 def delete_well(well_id):
     database.eliminar_pozo(well_id)
     return jsonify({"success": True})
+
+@app.route('/api/pozos', methods=['GET'])
+def get_pozos():
+    return jsonify(database.listar_conteos())
+
+@app.route('/api/pozos', methods=['POST'])
+def save_pozos():
+    data = request.json or {}
+    departamento = (data.get('departamento') or '').strip()
+    if not departamento:
+        return jsonify({"success": False, "error": "Falta el departamento"}), 400
+    try:
+        pozos = int(data.get('pozos') or 0)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Cantidad de pozos inválida"}), 400
+    if pozos < 0:
+        return jsonify({"success": False, "error": "La cantidad no puede ser negativa"}), 400
+    database.guardar_conteo(
+        departamento=departamento,
+        provincia=(data.get('provincia') or '').strip(),
+        distrito=(data.get('distrito') or '').strip(),
+        pozos=pozos,
+        petar=bool(data.get('petar'))
+    )
+    return jsonify({"success": True})
+
+@app.route('/api/pozos/<int:conteo_id>', methods=['DELETE'])
+def delete_pozos(conteo_id):
+    database.eliminar_conteo(conteo_id)
+    return jsonify({"success": True})
+
+@app.after_request
+def comprimir(respuesta):
+    if (respuesta.status_code == 200
+            and 'Content-Encoding' not in respuesta.headers
+            and 'gzip' in request.headers.get('Accept-Encoding', '')
+            and respuesta.mimetype in ('text/html', 'application/json', 'application/javascript')
+            and not respuesta.direct_passthrough
+            and (respuesta.content_length or 0) > 1024):
+        datos = gzip.compress(respuesta.get_data(), 6)
+        respuesta.set_data(datos)
+        respuesta.headers['Content-Encoding'] = 'gzip'
+        respuesta.headers['Vary'] = 'Accept-Encoding'
+    return respuesta
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8051))
