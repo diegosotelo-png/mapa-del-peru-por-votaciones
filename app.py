@@ -1,25 +1,38 @@
 from flask import Flask, jsonify, request, send_from_directory, Response
 import gzip
+import json
 import os
 import database
 
-# Inicializar BD
-database.crear_tabla()
-database.insertar_datos_ejemplo()
-database.crear_tabla_conteo()
+# Inicializar BD. Si falla, la app arranca igual y avisa en la interfaz.
+ERROR_BD = ""
+try:
+    database.crear_tabla()
+    database.crear_tabla_conteo()
+except Exception as exc:  # noqa: BLE001
+    ERROR_BD = str(exc)
+    print(f"[BD] No se pudo inicializar: {exc}")
 
 app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @app.route('/')
 def index():
-    return """
+    estado = {
+        "motor": database.motor(),
+        "persistente": database.motor() == "postgres",
+        "error": ERROR_BD,
+    }
+    return HTML.replace("__ALMACENAMIENTO__", json.dumps(estado))
+
+
+HTML = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa de Estadísticas de Votos — Perú</title>
+    <title>Mapa de Pozos — Perú</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
@@ -660,6 +673,7 @@ def index():
             ubigeoDistricts: "/data/ubigeo_distritos.json"
         };
         let pozosData = [];
+        const ALMACENAMIENTO = __ALMACENAMIENTO__;
         let geo = { departments: null, provinces: null, districts: null };
         let ubigeo = { departments: [], provinces: [], districts: [] };
         let currentLevel = "departments";
@@ -681,7 +695,14 @@ def index():
                 pozosData = await res.json();
                 const zonas = pozosData.length;
                 const total = pozosData.reduce((s, r) => s + (r.pozos || 0), 0);
-                setDbStatus(`Base local conectada — ${total} pozo${total !== 1 ? "s" : ""} en ${zonas} zona${zonas !== 1 ? "s" : ""}`);
+                const resumen = `${total} pozo${total !== 1 ? "s" : ""} en ${zonas} zona${zonas !== 1 ? "s" : ""}`;
+                if (ALMACENAMIENTO.error) {
+                    setDbStatus(`Base de datos con error: ${ALMACENAMIENTO.error}`, true);
+                } else if (ALMACENAMIENTO.persistente) {
+                    setDbStatus(`Guardado permanente (Postgres) — ${resumen}`);
+                } else {
+                    setDbStatus(`Guardado local — ${resumen} · ATENCIÓN: en Render estos datos se borran al reiniciar`, true);
+                }
             } catch (e) {
                 setDbStatus("Error cargando base de datos", true);
             }

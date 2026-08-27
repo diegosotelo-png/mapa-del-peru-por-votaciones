@@ -1,151 +1,56 @@
-import sqlite3
-import os
+"""Almacenamiento de los pozos.
 
-DB_PATH = "pozos.db"
+Funciona con dos motores sin cambiar nada del resto de la app:
+
+  * SQLite  -> por defecto, en el archivo DB_PATH (uso local).
+  * Postgres -> si existe la variable de entorno DATABASE_URL.
+
+En Render el disco es efímero: sin DATABASE_URL los datos se pierden en
+cada despliegue. Con DATABASE_URL apuntando a un Postgres, persisten.
+"""
+
+import os
+import sqlite3
+
+DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
+USA_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+DB_PATH = os.environ.get("DB_PATH", "pozos.db")
+
+
+def motor():
+    return "postgres" if USA_POSTGRES else "sqlite"
 
 
 def conectar():
+    if USA_POSTGRES:
+        import psycopg2
+        url = DATABASE_URL
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        return psycopg2.connect(url)
     return sqlite3.connect(DB_PATH)
 
 
-def crear_tabla():
-    """Crea la tabla de pozos si no existe"""
+def q(sql):
+    """SQLite usa ? y Postgres %s para los parámetros."""
+    return sql.replace("?", "%s") if USA_POSTGRES else sql
+
+
+def ejecutar(sql, params=(), fetch=None):
     conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pozos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            departamento TEXT NOT NULL,
-            nombre TEXT NOT NULL,
-            profundidad REAL,
-            produccion REAL,
-            operador TEXT,
-            anio INTEGER,
-            estado TEXT
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def insertar_datos_ejemplo():
-    """Inserta datos de ejemplo si la tabla está vacía"""
-    conn = conectar()
-    cursor = conn.cursor()
-    
-    # Verificar si ya hay datos
-    cursor.execute("SELECT COUNT(*) FROM pozos")
-    count = cursor.fetchone()[0]
-    
-    if count == 0:
-        datos_ejemplo = [
-            ("Piura", "Pozo Talara 1", 2500.0, 1200.0, "Petroperú", 2015, "Activo"),
-            ("Piura", "Pozo Talara 2", 2200.0, 950.0, "Sapet", 2018, "Activo"),
-            ("Loreto", "Pozo Pastaza 1", 3100.0, 1800.0, "Petroperú", 2012, "Activo"),
-            ("Loreto", "Pozo Pastaza 2", 2800.0, 1500.0, "Pluspetrol", 2019, "Inactivo"),
-            ("Ucayali", "Pozo Ucayali 1", 2400.0, 800.0, "Frontera", 2017, "Activo"),
-        ]
-        
-        cursor.executemany("""
-            INSERT INTO pozos 
-            (departamento, nombre, profundidad, produccion, operador, anio, estado)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, datos_ejemplo)
-        
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q(sql), params)
+        datos = None
+        if fetch == "one":
+            datos = cursor.fetchone()
+        elif fetch == "all":
+            datos = cursor.fetchall()
         conn.commit()
-    
-    conn.close()
+        return datos
+    finally:
+        conn.close()
 
-
-def insertar_pozo(departamento, nombre, profundidad, produccion, operador, anio, estado):
-    """Inserta un nuevo pozo en la base de datos"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO pozos 
-        (departamento, nombre, profundidad, produccion, operador, anio, estado)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (departamento, nombre, profundidad, produccion, operador, anio, estado))
-
-    conn.commit()
-    conn.close()
-
-
-def eliminar_pozo(id_pozo):
-    """Elimina un pozo por ID"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM pozos WHERE id = ?", (id_pozo,))
-
-    conn.commit()
-    conn.close()
-
-
-def listar_pozos_por_departamento(departamento):
-    """Lista todos los pozos de un departamento específico"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id, nombre, profundidad, produccion, operador, anio, estado
-        FROM pozos
-        WHERE departamento = ?
-        ORDER BY id DESC
-    """, (departamento,))
-
-    datos = cursor.fetchall()
-    conn.close()
-    return datos
-
-
-def listar_conteo_por_departamento():
-    """Retorna el conteo de pozos por departamento"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT departamento, COUNT(*) as total_pozos
-        FROM pozos
-        GROUP BY departamento
-    """)
-
-    datos = cursor.fetchall()
-    conn.close()
-    return {fila[0]: fila[1] for fila in datos}
-
-
-def obtener_metricas_departamento(departamento):
-    """Obtiene métricas del departamento: total, activos, BPD, profundidad promedio"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN estado = 'Activo' THEN 1 ELSE 0 END) as activos,
-            SUM(produccion) as bpd_total,
-            AVG(profundidad) as profundidad_media
-        FROM pozos
-        WHERE departamento = ?
-    """, (departamento,))
-
-    resultado = cursor.fetchone()
-    conn.close()
-    
-    return {
-        "total": resultado[0] or 0,
-        "activos": resultado[1] or 0,
-        "bpd_total": resultado[2] or 0.0,
-        "profundidad_media": resultado[3] or 0.0
-    }
-
-    conn.close()
-
-    return datos
 
 # ---------------------------------------------------------------------------
 # Conteo de pozos por zona (departamento / provincia / distrito)
@@ -156,12 +61,10 @@ def obtener_metricas_departamento(departamento):
 
 def crear_tabla_conteo():
     """Crea la tabla de conteo de pozos por zona si no existe"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
+    clave = "SERIAL PRIMARY KEY" if USA_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    ejecutar(f"""
         CREATE TABLE IF NOT EXISTS conteo_pozos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {clave},
             departamento TEXT NOT NULL,
             provincia TEXT NOT NULL DEFAULT '',
             distrito TEXT NOT NULL DEFAULT '',
@@ -171,39 +74,24 @@ def crear_tabla_conteo():
         )
     """)
 
-    conn.commit()
-    conn.close()
-
 
 def guardar_conteo(departamento, provincia, distrito, pozos, petar):
     """Inserta o actualiza el conteo de una zona"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
+    ejecutar("""
         INSERT INTO conteo_pozos (departamento, provincia, distrito, pozos, petar)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT (departamento, provincia, distrito)
         DO UPDATE SET pozos = excluded.pozos, petar = excluded.petar
     """, (departamento, provincia or "", distrito or "", int(pozos or 0), 1 if petar else 0))
 
-    conn.commit()
-    conn.close()
-
 
 def listar_conteos():
     """Lista todos los conteos cargados"""
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
+    filas = ejecutar("""
         SELECT id, departamento, provincia, distrito, pozos, petar
         FROM conteo_pozos
         ORDER BY departamento, provincia, distrito
-    """)
-
-    filas = cursor.fetchall()
-    conn.close()
+    """, fetch="all") or []
 
     return [
         {
@@ -220,10 +108,60 @@ def listar_conteos():
 
 def eliminar_conteo(id_conteo):
     """Elimina el conteo de una zona por ID"""
-    conn = conectar()
-    cursor = conn.cursor()
+    ejecutar("DELETE FROM conteo_pozos WHERE id = ?", (id_conteo,))
 
-    cursor.execute("DELETE FROM conteo_pozos WHERE id = ?", (id_conteo,))
 
-    conn.commit()
-    conn.close()
+# ---------------------------------------------------------------------------
+# Tabla original de pozos individuales (la usan los endpoints /api/wells)
+# ---------------------------------------------------------------------------
+
+
+def crear_tabla():
+    """Crea la tabla de pozos si no existe"""
+    clave = "SERIAL PRIMARY KEY" if USA_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    ejecutar(f"""
+        CREATE TABLE IF NOT EXISTS pozos (
+            id {clave},
+            departamento TEXT NOT NULL,
+            nombre TEXT NOT NULL,
+            profundidad REAL,
+            produccion REAL,
+            operador TEXT,
+            anio INTEGER,
+            estado TEXT
+        )
+    """)
+
+
+def insertar_pozo(departamento, nombre, profundidad, produccion, operador, anio, estado):
+    """Inserta un nuevo pozo en la base de datos"""
+    ejecutar("""
+        INSERT INTO pozos
+        (departamento, nombre, profundidad, produccion, operador, anio, estado)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (departamento, nombre, profundidad, produccion, operador, anio, estado))
+
+
+def eliminar_pozo(id_pozo):
+    """Elimina un pozo por ID"""
+    ejecutar("DELETE FROM pozos WHERE id = ?", (id_pozo,))
+
+
+def listar_pozos_por_departamento(departamento):
+    """Lista todos los pozos de un departamento específico"""
+    return ejecutar("""
+        SELECT id, nombre, profundidad, produccion, operador, anio, estado
+        FROM pozos
+        WHERE departamento = ?
+        ORDER BY id DESC
+    """, (departamento,), fetch="all") or []
+
+
+def listar_conteo_por_departamento():
+    """Retorna el conteo de pozos por departamento"""
+    filas = ejecutar("""
+        SELECT departamento, COUNT(*) as total_pozos
+        FROM pozos
+        GROUP BY departamento
+    """, fetch="all") or []
+    return {fila[0]: fila[1] for fila in filas}
